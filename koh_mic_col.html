@@ -1,0 +1,591 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Displaying an image with canvas</title>
+<style>
+  canvas {
+    border: thin solid #CCCCCC;
+    /*border-color: green;
+    border-style: double;*/
+    margin: 0px auto;
+    /*    width: 800px;
+    height: 600px;*/
+  }
+
+  #container {
+    text-align: center;
+  }
+</style>
+
+<body>
+  <div id="container">
+    <canvas width="800" height="600"></canvas>
+  </div>
+  <script type="text/javascript">
+    //Math.floor - enough only at render level?
+    //////////////////////////////////
+    //Mic stuff begin
+    navigator.getUserMedia = navigator.getUserMedia ||
+      navigator.webkitGetUserMedia ||
+      navigator.mozGetUserMedia ||
+      navigator.msGetUserMedia;
+    var audioCtx = new(window.AudioContext || window.webkitAudioContext)();
+    navigator.getUserMedia({
+      video: false,
+      audio: true
+    }, micAnal, console.log);
+    //////////////////////////////////
+    var spriteObject = {
+      sourceX: 0,
+      sourceY: 0,
+      sourceWidth: 64,
+      sourceHeight: 64,
+      width: 48,
+      height: 48,
+      x: 0,
+      y: 0,
+      vx: 0,
+      vy: 0,
+      visible: true,
+      typeIs: 0, //0 - for ???, 1 - for blocks
+      //Physics properties
+      //accelerationY: 0,
+      bounce: -0.7,
+      gravity: 0.1,
+      isOnGround: true, //undefined,
+      jumpForce: -10,
+
+      //Getters
+      centerX: function() {
+        return this.x + (this.width / 2);
+      },
+      centerY: function() {
+        return this.y + (this.height / 2);
+      },
+      halfWidth: function() {
+        return this.width / 2;
+      },
+      halfHeight: function() {
+        return this.height / 2;
+      }
+    };
+
+
+    //The canvas
+    var canvas = document.querySelector("canvas");
+    var drawingSurface = canvas.getContext("2d");
+    drawingSurface.globalCompositeOperation = 'destination-over';
+    drawingSurface.font = "normal bold 26px Helvetica";
+    //drawingSurface.fillStyle = "#000";
+    drawingSurface.textBaseline = "top";
+
+    //Object arrays
+    var sprites = [];
+    var bullets = [];
+    var clouds = [];
+    var assetsToLoad = [];
+    var assetsLoaded = 0;
+
+    //Global Constants:
+    var blockVelocity = -3;
+    var bulletVelocity = -1.5;
+    var cloudVelocity = -2;
+
+    //Time values
+    var time = 0;
+    var timeBul = 0;
+    var bulletInterval = 0;
+    //  var time=date.getTime();
+
+    var currentGround = canvas.height - Math.floor(canvas.height * 0.08); //initial value to start
+
+    //Vaca, the Hero
+    var Vaca = Object.create(spriteObject);
+    Vaca.x = Math.floor(canvas.width / 3 - Vaca.halfWidth());
+    Vaca.y = 0; //canvas.height / 1.2 - Vaca.halfHeight();
+    var deathLevel = canvas.height * 0.97 - Vaca.halfHeight(); //Vaca dies when falls that low
+    var mainPole = Vaca.x + Vaca.halfWidth(); //where Vaca stands
+    var toggler = 0; //used for blocks generation
+
+    //Mic activity indicator
+    var MicAc = Object.create(spriteObject);
+    MicAc.x = 0;
+    MicAc.y = canvas.height;
+    MicAc.width = 15;
+    MicAc.height = 0;
+    MicAc.typeIs = 2;
+    sprites.push(MicAc);
+
+    function flipper(toggle) {
+      if (toggle === 0) {
+        toggle = 1;
+      } else {
+        toggle = 0;
+      }
+      return toggle;
+    }
+
+    function randomRange(min, max) { //generates int random numbers within the given range
+      return (Math.floor(Math.random() * (max - min + 1)) + min);
+    }
+
+
+    //Generate initial block
+    var initBlock = Object.create(spriteObject);
+    initBlock.x = mainPole;
+    initBlock.y = currentGround;
+    initBlock.width = canvas.width - mainPole;
+    initBlock.height = canvas.height - currentGround;
+    initBlock.typeIs = 1;
+    sprites.push(initBlock);
+    console.log(currentGround);
+
+    var score = -initBlock.width; //score of the game
+
+
+    //Load the tilesheet image
+    var image = new Image();
+    image.addEventListener("load", loadHandler, false);
+    image.src = "shit.png";
+    assetsToLoad.push(image);
+
+    //Game states
+    var LOADING = 0;
+    var PLAYING = 1;
+    var OVER = 2;
+    var gameState = LOADING;
+
+    //Key codes
+    var UP = 38;
+    var SPACE = 32;
+
+    //Jump triggers
+    var moveUp = false;
+    var jump = false;
+    var krik = false;
+
+    //Add keyboard listeners
+    window.addEventListener("keydown", function(event) {
+      switch (event.keyCode) {
+        case UP:
+          moveUp = true;
+          Vaca.isOnGround = false;
+          break;
+
+        case SPACE:
+          jump = true;
+          break;
+      }
+    }, false);
+
+    window.addEventListener("keyup", function(event) {
+      switch (event.keyCode) {
+        case UP:
+          moveUp = false;
+          break;
+
+        case SPACE:
+          jump = false;
+          break;
+      }
+    }, false);
+
+    ////////////////////////////////////////
+    function init() {
+      console.log("Restarting the Game!");
+      score = -initBlock.width;
+      sprites.length = 0;
+      bullets.length = 0;
+      clouds.length = 0;
+      toggler = 0;
+      moveUp = false;
+      jump = false;
+      krik = false;
+      sprites.push(MicAc);
+      Vaca.sourceX = 0;
+      Vaca.width = 48;
+      Vaca.height = 48;
+      Vaca.isOnGround = true;
+      Vaca.x = Math.floor(canvas.width / 3 - Vaca.halfWidth());
+      Vaca.y = 0;
+      Vaca.vy = 0;
+      Vaca.gravity = 0.1;
+      currentGround = canvas.height - Math.floor(canvas.height * 0.08);
+      initBlock.x = mainPole;
+      initBlock.y = currentGround; //Vaca.y + Vaca.height;
+      initBlock.width = canvas.width - mainPole;
+      initBlock.height = canvas.height - currentGround; //Vaca.y;
+      initBlock.typeIs = 1;
+      sprites.push(initBlock);
+      //generateBullet(300);
+      // image.addEventListener("load", loadHandler, false);
+      // image.src = "shit.png";
+      // assetsToLoad.push(image);
+      gameState = PLAYING; //LOADING;
+    }
+
+    ////////////////////////////////////////
+    function generateBlock(h, w) {
+      var block = Object.create(spriteObject);
+      block.x = canvas.width;
+      block.y = canvas.height - h;
+      block.width = w;
+      block.height = h;
+      block.vx = blockVelocity;
+      block.typeIs = 1;
+      sprites.push(block);
+    }
+
+    /////////Generate a bullet at given y-position ///////////////////////////////
+    function generateBullet() {
+      var bullet = Object.create(spriteObject);
+      //  bullet.typeIs = 3;
+      bullet.width = 20; //raduis of the circle
+      bullet.x = canvas.width + bullet.halfWidth(); // + 3;
+      if (currentGround < deathLevel) {
+        bullet.y = currentGround - Vaca.halfHeight();
+      } else {
+        bullet.y = Math.floor(canvas.height * randomRange(20, 70) / 100);
+      }
+      bullets.push(bullet);
+      var db = new Date();
+      timeBul = db.getTime();
+      bulletInterval = randomRange(3000, 20000);
+    }
+
+    /////////////////Generate a spiky cloud////////////////////
+    function generateCloud(cloudW, cloudH) {
+      var cloud = Object.create(spriteObject);
+      cloud.width = cloudW;
+      cloud.height = cloudH;
+      cloud.x = canvas.width;
+      clouds.push(cloud);
+    }
+    /////////////////////////////
+
+    /////Collision check as rectangles Vaca vs cloud
+    function hitTestRectangle(r1, r2) {
+      //This will return true if there's a collision on both the X and Y axes
+      return Math.abs(r1.centerX() - r2.centerX()) <
+        r1.halfWidth() + r2.halfWidth() &&
+        Math.abs(r1.centerY() - r2.centerY()) <
+        r1.halfHeight() + r2.halfHeight();
+    }
+//////////////////////
+    function Death() {
+      console.log("I am dead now. " + Vaca.y);
+      Vaca.sourceX = 65; //рисуем кляксу
+      var oldWidth = Vaca.width;
+      var oldHeight = Vaca.height;
+      var koef = 2; //увеличение взрыва
+      Vaca.width *= koef;
+      Vaca.height *= koef;
+      Vaca.x = Vaca.x - oldWidth * (koef - 1) / 2;
+      Vaca.y = Vaca.y - oldHeight * (koef - 1) / 2;
+          console.log("Y= "+Vaca.y);
+      var date = new Date();
+      time = date.getTime();
+      gameState = OVER;
+    }
+
+    var average = 0;
+
+    function micAnal(stream) {
+      var mic = audioCtx.createMediaStreamSource(stream); //creates media stream object mic
+      var analyser = audioCtx.createAnalyser();
+      analyser.smoothingTimeConstant = 0.05;
+      analyser.fftSize = 1024;
+      mic.connect(analyser);
+      var bufferLength = analyser.frequencyBinCount; //half of fftSize
+      var dataArray = new Float32Array(bufferLength);
+
+      function update() {
+        //console.log(gameState);
+        analyser.getFloatTimeDomainData(dataArray);
+        var values = 0;
+        var length = dataArray.length;
+        for (var i = 0; i < length; i++) {
+          values += dataArray[i] * dataArray[i];
+        }
+        average = Math.sqrt(values / length) * 500;
+        //console.log(average);
+        if (average > 20) {
+          krik = true;
+          Vaca.jumpForce = -average / 5;
+
+        } else {
+          krik = false;
+        }
+        //The animation loop
+        requestAnimationFrame(update, canvas);
+        //Change what the game is doing based on the game state
+        switch (gameState) {
+          case LOADING:
+            console.log("loading...");
+            break;
+
+          case PLAYING:
+            //console.log("Playing...");
+            playGame();
+            break;
+
+          case OVER:
+            var d = new Date();
+            var t = d.getTime();
+            if (t - time > 3000) {
+              init();
+              break;
+            }
+
+        }
+
+
+        //Render the game
+        render();
+      }
+      update();
+    }
+
+    ////////////////////////////////////////
+    function loadHandler() {
+      assetsLoaded++;
+      if (assetsLoaded === assetsToLoad.length) {
+        image.removeEventListener("load", loadHandler, false);
+        gameState = PLAYING;
+      }
+    }
+
+
+    ////////////////////////////////////////
+    function playGame() {
+      if (moveUp) {
+        Vaca.jumpForce = -0.3;
+        Vaca.gravity = 0.1;
+        Vaca.vy += Vaca.jumpForce;
+      }
+      //Space
+      if (jump && Vaca.isOnGround) {
+        Vaca.jumpForce = -22;
+        Vaca.gravity = 0.4;
+        Vaca.vy += Vaca.jumpForce;
+        Vaca.isOnGround = false;
+      }
+
+      //Mic activity
+      if (krik && Vaca.isOnGround) {
+        //Vaca.jumpForce = -5;
+        Vaca.gravity = 0.4;
+        if (Vaca.jumpForce < -22) {
+          Vaca.jumpForce = -22;
+        }
+        Vaca.vy += Vaca.jumpForce;
+        Vaca.isOnGround = false;
+      }
+      //Vaca.vy += Vaca.accelerationY;
+      //Apply gravity
+      Vaca.vy += Vaca.gravity;
+      //Move the Vaca
+      Vaca.y += Vaca.vy;
+      //Bounce off top
+      // if (Vaca.y < 0) {
+      //   Vaca.vy *= Vaca.bounce;
+      //   Vaca.y = 0;
+      // }
+      if (Vaca.y > deathLevel) { //Vaca dies
+        Death();
+      }
+
+      //Bottom: stick to the ground surface
+      if ((Vaca.y + Vaca.height > currentGround) && (currentGround < deathLevel)) {
+        Vaca.y = currentGround - Vaca.height;
+        Vaca.isOnGround = true;
+        Vaca.vy = -Vaca.gravity;
+      }
+      ///Dealing with bullets//////////////
+      //////////Moving bullets
+      for (var i = 0; i < bullets.length; i++) {
+        var bullet = bullets[i];
+        if (!Vaca.isOnGround) {
+          bullet.x += (bulletVelocity + blockVelocity);
+        } else {
+          bullet.x += bulletVelocity;
+        }
+        ///Check if Vaca hit by a bullet
+        if (hitTestRectangle(bullet, Vaca)) {
+          bullets.splice(i, 1);
+          Death();
+        }
+        //Delete the bullet which is gone and add some to score
+        if ((bullet.x + bullet.width + 3) <= 0) {
+          bullets.splice(i, 1);
+          score += 10;
+          //  console.log(bullets.length);
+        }
+      }
+      //Generate bullets with random intervals
+      if (score > 10) {
+        var d = new Date();
+        var td = d.getTime() - timeBul;
+        if (td > bulletInterval) {
+          generateBullet();
+        }
+      }
+
+      ///////Dealing with spiky clouds/////////////
+      ///Generate clouds when score exceed some value
+      if ((score > 10) && (!clouds.length)) {
+        generateCloud(Math.ceil(canvas.width * randomRange(1, 25) / 1000) * 20, Math.floor(canvas.height * randomRange(26, 100) / 1000));
+        //console.log(clouds[0].height);
+      }
+      //Moving clouds
+      for (var i = 0; i < clouds.length; i++) {
+        var cloud = clouds[i];
+        if (!Vaca.isOnGround) {
+          cloud.x += (cloudVelocity + blockVelocity);
+        } else {
+          cloud.x += cloudVelocity;
+        }
+        //Check if Vaca hit by a spiky cloud
+        if (hitTestRectangle(cloud, Vaca)) {
+          Death();
+        }
+        //Delete cloud which is gone and add some to score
+        if ((cloud.x + cloud.width) <= 0) {
+          clouds.splice(i, 1);
+          score += 5;
+          //console.log(clouds.length);
+        }
+      }
+
+      //////End Dealing with spiky clouds///////////
+
+      //Moving blocks
+      for (var i = 0; i < sprites.length; i++) {
+        var sprite = sprites[i];
+        if (sprite.typeIs === 1) {
+          if (!Vaca.isOnGround) {
+            sprite.x += blockVelocity;
+          }
+          /////Set ground level
+          if (sprite.x <= mainPole && (sprite.x + sprite.width) >= mainPole) {
+            currentGround = canvas.height - sprite.height;
+          }
+          //Delete the block which is gone
+          if ((sprite.x + sprite.width) <= 0) {
+            sprites.splice(i, 1);
+            score += sprite.width;
+            //console.log(score);
+          }
+        }
+      }
+
+      //Generate new block
+      if ((sprites[sprites.length - 1].x + sprites[sprites.length - 1].width) <= canvas.width) {
+        console.log("time to generate! ");
+        //console.log(currentGround);
+        if (toggler) { //generate safe block
+          generateBlock(randomRange(Math.round(canvas.height * 0.08), Math.round(canvas.height * 0.35)), randomRange(Math.round(Vaca.width * 1.3), Math.round(canvas.width * 0.44)));
+          toggler = flipper(toggler);
+        } else { //generate death block
+          generateBlock(0, randomRange(Math.round(Vaca.width * 1.3), Math.round(canvas.width * 0.25)));
+          toggler = flipper(toggler);
+        }
+      }
+    }
+    ////////////////////////////////////////
+    function render() {
+      drawingSurface.clearRect(0, 0, canvas.width, canvas.height);
+      //Draw Vaca
+      drawingSurface.drawImage(
+        image,
+        Vaca.sourceX, Vaca.sourceY,
+        Vaca.sourceWidth, Vaca.sourceHeight,
+        Math.floor(Vaca.x), Math.floor(Vaca.y),
+        Vaca.width, Vaca.height
+      );
+      //Display score
+      if (score > 0) {
+        //  drawingSurface.beginPath();
+        drawingSurface.fillStyle = "#000";
+        drawingSurface.fillText('Очки: ' + score, 10, 10);
+      } else {
+        //  drawingSurface.beginPath();
+        drawingSurface.fillStyle = "#000";
+        drawingSurface.fillText('Очки: 0 ', 10, 10);
+      }
+      //render bullets from bullets[] array
+      for (var i = 0; i < bullets.length; i++) {
+        var bullet = bullets[i];
+        drawingSurface.fillStyle = "#ff0000";
+        drawingSurface.lineWidth = 4;
+        drawingSurface.strokeStyle = 'yellow';
+        drawingSurface.beginPath();
+        drawingSurface.arc(
+          Math.floor(bullet.x),
+          Math.floor(bullet.y),
+          Math.floor(bullet.halfWidth()),
+          0, 2 * Math.PI, false
+        );
+        drawingSurface.fill();
+        drawingSurface.stroke();
+
+      } //end bullets
+
+      //Render clouds from clouds[] array
+      for (var i = 0; i < clouds.length; i++) {
+        var cloud = clouds[i];
+        drawingSurface.fillStyle = "#ff0000";
+        drawingSurface.lineWidth = 1;
+        drawingSurface.strokeStyle = "#000";
+        drawingSurface.beginPath();
+        cloud.x = Math.floor(cloud.x);
+        drawingSurface.moveTo(cloud.x, 0);
+        drawingSurface.lineTo(cloud.x, cloud.height);
+        var k = cloud.height;
+        var j = 0;
+        while (j < cloud.width) {
+          j += 10;
+          if (k === cloud.height) {
+            k = k - 20; //20-length of a spike
+          } else {
+            k = k + 20;
+          }
+          drawingSurface.lineTo(cloud.x + j, k);
+        }
+        drawingSurface.lineTo(cloud.x + cloud.width, 0);
+        drawingSurface.stroke();
+        drawingSurface.closePath();
+        drawingSurface.fill();
+      }
+
+      //Display the shape sprites (Blocks and Mic Level, which are in sprites[] array)
+      for (var i = 0; i < sprites.length; i++) {
+        var sprite = sprites[i];
+        if (sprite.visible) {
+          //render blocks
+          if (sprite.typeIs === 1) {
+            drawingSurface.fillStyle = "#000";
+            drawingSurface.fillRect(
+              Math.floor(sprite.x),
+              sprite.y,
+              sprite.width,
+              sprite.height
+            );
+          }
+          //Render mic level indicator
+          if (sprite.typeIs === 2) {
+            drawingSurface.fillStyle = "#008000";
+            drawingSurface.fillRect(
+              Math.floor(sprite.x),
+              sprite.y,
+              sprite.width,
+              Math.floor(sprite.height - average * 5)
+            );
+          }
+        }
+      }
+
+    }
+    ////////////////////////////////////////
+  </script>
+
+</body>
