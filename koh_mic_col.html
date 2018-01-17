@@ -293,7 +293,7 @@
       var mic = audioCtx.createMediaStreamSource(stream); //creates media stream object mic
       var analyser = audioCtx.createAnalyser();
       analyser.smoothingTimeConstant = 0.05;
-      analyser.fftSize = 1024;
+      analyser.fftSize = 256; //was 1024
       mic.connect(analyser);
       var bufferLength = analyser.frequencyBinCount; //half of fftSize
       var dataArray = new Float32Array(bufferLength);
